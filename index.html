@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DaScient’s Dog Fight Simulator</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <div id="canvas-container"></div>
+
+    <div id="hud">
+        <div class="hud-header">
+            <h1>DOG FIGHT SIMULATOR</h1>
+            <div class="status">SYSTEM: <span id="sys-status" class="blink">ONLINE</span></div>
+        </div>
+
+        <div class="hud-panel left">
+            <h3>TELEMETRY</h3>
+            <div class="data-row"><span>ACTIVE AGENTS:</span> <span id="agent-count">0</span></div>
+            <div class="data-row"><span>FPS:</span> <span id="fps-counter">60</span></div>
+            <div class="data-row"><span>SIM TIME:</span> <span id="sim-time">00:00</span></div>
+        </div>
+
+        <div class="hud-panel right">
+            <h3>CONTROLS</h3>
+            <button onclick="sim.addAgent('CYAN')">DEPLOY CYAN WING</button>
+            <button onclick="sim.addAgent('MAGENTA')">DEPLOY MAGENTA WING</button>
+            <button onclick="sim.addAgent('LIME')">DEPLOY LIME WING</button>
+            <div class="slider-group">
+                <label>TIME SCALE</label>
+                <input type="range" id="time-scale" min="0.1" max="2.0" step="0.1" value="1.0">
+            </div>
+            <button class="danger" onclick="sim.reset()">RESET AIRSPACE</button>
+        </div>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+    <script type="module" src="simulation.js"></script>
+</body>
+</html>
