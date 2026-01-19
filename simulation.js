@@ -6,11 +6,12 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 
 // --- CONFIGURATION ---
 const CONFIG = {
-    worldSize: 600,
-    speed: 1.0, // Global Time Scale
-    agentSpeed: 1.5,
-    turnSpeed: 0.08,
-    detectionRange: 150,
+    worldSize: 800,
+    baseSpeed: 1.0, 
+    slowMoSpeed: 0.1,
+    agentSpeed: 2.0,
+    turnSpeed: 0.06,
+    detectionRange: 200,
     teams: {
         CYAN: { color: 0x00f3ff, shape: 'tetra' },
         MAGENTA: { color: 0xff00ff, shape: 'box' },
@@ -21,23 +22,43 @@ const CONFIG = {
 // --- UTILITIES ---
 const randomRange = (min, max) => Math.random() * (max - min) + min;
 
+// --- CAMERA SHAKE SYSTEM ---
+class CameraShake {
+    constructor(camera) {
+        this.camera = camera;
+        this.shakeIntensity = 0;
+        this.decay = 0.95;
+    }
+    trigger(intensity) {
+        this.shakeIntensity = Math.min(this.shakeIntensity + intensity, 2.0);
+    }
+    update() {
+        if (this.shakeIntensity > 0.01) {
+            const rx = (Math.random() - 0.5) * this.shakeIntensity;
+            const ry = (Math.random() - 0.5) * this.shakeIntensity;
+            const rz = (Math.random() - 0.5) * this.shakeIntensity;
+            this.camera.position.add(new THREE.Vector3(rx, ry, rz));
+            this.shakeIntensity *= this.decay;
+        }
+    }
+}
+
 // --- CLASS: AGENT ---
 class Agent {
-    constructor(scene, teamKey) {
+    constructor(scene, teamKey, simReference) {
         this.scene = scene;
         this.team = teamKey;
+        this.sim = simReference; // Reference back to main sim for scoring
         this.alive = true;
         this.hp = 100;
         this.target = null;
         
         // Physics
         this.position = new THREE.Vector3(
-            randomRange(-100, 100),
-            randomRange(-50, 50),
-            randomRange(-100, 100)
+            randomRange(-200, 200), randomRange(-50, 50), randomRange(-200, 200)
         );
-        this.velocity = new THREE.Vector3(randomRange(-1, 1), randomRange(-1, 1), randomRange(-1, 1)).normalize().multiplyScalar(CONFIG.agentSpeed);
-        this.quaternion = new THREE.Quaternion();
+        this.velocity = new THREE.Vector3(randomRange(-1, 1), randomRange(-1, 1), randomRange(-1, 1))
+            .normalize().multiplyScalar(CONFIG.agentSpeed);
         
         // Visuals
         const teamConfig = CONFIG.teams[teamKey];
@@ -46,25 +67,23 @@ class Agent {
         else if(teamConfig.shape === 'box') geometry = new THREE.BoxGeometry(3, 1, 4);
         else geometry = new THREE.OctahedronGeometry(2);
 
-        // Emissive material for Bloom effect
         const material = new THREE.MeshStandardMaterial({ 
-            color: 0x222222, 
+            color: 0x111111, 
             emissive: teamConfig.color,
-            emissiveIntensity: 2.0,
-            roughness: 0.4,
-            metalness: 0.8
+            emissiveIntensity: 3.0,
+            roughness: 0.2,
+            metalness: 0.9
         });
 
         this.mesh = new THREE.Mesh(geometry, material);
         this.mesh.castShadow = true;
-        this.mesh.receiveShadow = true;
         scene.add(this.mesh);
 
         // Engine Trail
         this.trailGeo = new THREE.BufferGeometry();
-        this.trailPositions = new Float32Array(50 * 3); // 50 segments
+        this.trailPositions = new Float32Array(60 * 3);
         this.trailGeo.setAttribute('position', new THREE.BufferAttribute(this.trailPositions, 3));
-        this.trailMat = new THREE.LineBasicMaterial({ color: teamConfig.color, transparent: true, opacity: 0.5 });
+        this.trailMat = new THREE.LineBasicMaterial({ color: teamConfig.color, transparent: true, opacity: 0.6 });
         this.trail = new THREE.Line(this.trailGeo, this.trailMat);
         scene.add(this.trail);
     }
@@ -72,50 +91,49 @@ class Agent {
     update(dt, agents) {
         if (!this.alive) return;
 
-        // 1. AI Decision
-        if (!this.target || !this.target.alive) {
-            this.findTarget(agents);
-        }
+        // 1. AI Logic
+        if (!this.target || !this.target.alive) this.findTarget(agents);
 
-        // Steer
         const desiredDirection = new THREE.Vector3();
         
         if (this.target && this.target.alive) {
-            // Dogfight Logic: Intercept logic
-            desiredDirection.subVectors(this.target.mesh.position, this.position).normalize();
+            // Lead the target (Hyper-realism: Aim where they are going, not where they are)
+            const leadPos = this.target.position.clone().add(this.target.velocity.clone().multiplyScalar(10));
+            desiredDirection.subVectors(leadPos, this.position).normalize();
             
-            // Shoot check (simple distance/angle check)
+            // Engagement Distance
             const dist = this.position.distanceTo(this.target.mesh.position);
-            if(dist < 50) this.fire(dt);
+            
+            // Check angle (Cone of fire)
+            const angle = this.velocity.angleTo(desiredDirection);
+            
+            if(dist < 80 && angle < 0.3) this.fire(dt);
 
         } else {
-            // Patrol: Gentle turn back to center if too far
+            // Patrol: Return to center
             if (this.position.length() > CONFIG.worldSize / 2) {
                 desiredDirection.subVectors(new THREE.Vector3(0,0,0), this.position).normalize();
             } else {
-                // Keep current heading with slight noise
                 desiredDirection.copy(this.velocity).normalize();
             }
         }
 
-        // 2. Physics (Aerodynamics simulation)
-        // Smoothly rotate velocity towards desired direction
+        // 2. Aerodynamics
         const currentDir = this.velocity.clone().normalize();
+        // Smooth turn
         currentDir.lerp(desiredDirection, CONFIG.turnSpeed * dt * 60);
         this.velocity.copy(currentDir).setLength(CONFIG.agentSpeed);
 
-        // Move
         this.position.add(this.velocity.clone().multiplyScalar(dt * 60));
 
-        // 3. Visual Orientation (Banking)
-        // Orient mesh to face velocity
+        // 3. Banking & Orientation
         const targetQuaternion = new THREE.Quaternion();
+        // Bank hard based on turn intensity
         const m = new THREE.Matrix4().lookAt(this.position, this.position.clone().add(this.velocity), new THREE.Vector3(0, 1, 0));
         targetQuaternion.setFromRotationMatrix(m);
-        this.mesh.quaternion.slerp(targetQuaternion, 0.1);
+        this.mesh.quaternion.slerp(targetQuaternion, 0.15); // Snappier rotation
         this.mesh.position.copy(this.position);
 
-        // Update Trail
         this.updateTrail();
     }
 
@@ -134,29 +152,38 @@ class Agent {
     }
 
     fire(dt) {
-        // Simple hitscan logic for simulation visual
-        if(Math.random() < 0.05) { // Fire rate
-           // Create laser beam visual
+        if(Math.random() < 0.08) { // Fire rate
+           // 1. Visual Laser
            const laserGeo = new THREE.BufferGeometry().setFromPoints([this.position, this.target.position]);
-           const laserMat = new THREE.LineBasicMaterial({ color: 0xffffff });
+           const laserMat = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 });
            const laser = new THREE.Line(laserGeo, laserMat);
            this.scene.add(laser);
-           
-           // Remove laser next frame
            setTimeout(() => { 
                this.scene.remove(laser); 
-               laserGeo.dispose();
-               laserMat.dispose();
-            }, 50);
+               laserGeo.dispose(); laserMat.dispose();
+            }, 40);
 
-           // Damage
-           this.target.takeDamage(10);
+           // 2. Physics Recoil (Push back)
+           this.position.sub(this.velocity.clone().normalize().multiplyScalar(0.2));
+
+           // 3. Damage Calculation
+           this.target.takeDamage(15, this.team);
         }
     }
 
-    takeDamage(amount) {
+    takeDamage(amount, attackerTeam) {
         this.hp -= amount;
-        if(this.hp <= 0) this.explode();
+        
+        // Flash White on Hit
+        this.mesh.material.emissive.setHex(0xffffff);
+        setTimeout(() => {
+            if(this.alive) this.mesh.material.emissive.setHex(CONFIG.teams[this.team].color);
+        }, 50);
+
+        if(this.hp <= 0 && this.alive) {
+            this.sim.registerKill(attackerTeam);
+            this.explode();
+        }
     }
 
     explode() {
@@ -164,36 +191,71 @@ class Agent {
         this.mesh.visible = false;
         this.trail.visible = false;
         
-        // Particle Explosion
-        const particleCount = 20;
+        // Trigger Camera Shake
+        this.sim.shaker.trigger(0.8);
+
+        // 1. Particles
+        const particleCount = 30;
         const geo = new THREE.BufferGeometry();
         const positions = [];
+        const velocities = [];
         for(let i=0; i<particleCount; i++) {
             positions.push(this.position.x, this.position.y, this.position.z);
+            velocities.push(
+                (Math.random()-0.5)*3, (Math.random()-0.5)*3, (Math.random()-0.5)*3
+            );
         }
         geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-        const mat = new THREE.PointsMaterial({ color: 0xffaa00, size: 2 });
+        const mat = new THREE.PointsMaterial({ color: CONFIG.teams[this.team].color, size: 3, transparent: true });
         const particles = new THREE.Points(geo, mat);
+        particles.userData = { velocities: velocities };
         this.scene.add(particles);
 
-        // Animate explosion removal
-        setTimeout(() => {
-            this.scene.remove(particles);
-            this.scene.remove(this.mesh);
-            this.scene.remove(this.trail);
-        }, 1000);
+        // 2. Shockwave Ring
+        const ringGeo = new THREE.RingGeometry(0.1, 0.5, 32);
+        const ringMat = new THREE.MeshBasicMaterial({ 
+            color: 0xffffff, side: THREE.DoubleSide, transparent: true, opacity: 0.8 
+        });
+        const shockwave = new THREE.Mesh(ringGeo, ringMat);
+        shockwave.position.copy(this.position);
+        shockwave.lookAt(this.sim.camera.position); // Always face camera
+        this.scene.add(shockwave);
+
+        // Animation Loop for debris
+        const explodeAnim = () => {
+            if(!particles.parent) return; // Stop if removed
+            
+            // Expand Shockwave
+            shockwave.scale.multiplyScalar(1.15);
+            shockwave.material.opacity -= 0.05;
+
+            // Move Particles
+            const posAttr = particles.geometry.attributes.position;
+            for(let i=0; i<particleCount; i++) {
+                posAttr.setX(i, posAttr.getX(i) + velocities[i*3]);
+                posAttr.setY(i, posAttr.getY(i) + velocities[i*3+1]);
+                posAttr.setZ(i, posAttr.getZ(i) + velocities[i*3+2]);
+            }
+            posAttr.needsUpdate = true;
+            mat.opacity -= 0.02;
+
+            if(mat.opacity <= 0) {
+                this.scene.remove(particles);
+                this.scene.remove(shockwave);
+                geo.dispose(); mat.dispose();
+            } else {
+                requestAnimationFrame(explodeAnim);
+            }
+        };
+        explodeAnim();
     }
 
     updateTrail() {
         const positions = this.trail.geometry.attributes.position.array;
-        // Shift array
         for (let i = positions.length - 1; i > 2; i--) {
             positions[i] = positions[i - 3];
         }
-        // Set new head
-        positions[0] = this.position.x;
-        positions[1] = this.position.y;
-        positions[2] = this.position.z;
+        positions[0] = this.position.x; positions[1] = this.position.y; positions[2] = this.position.z;
         this.trail.geometry.attributes.position.needsUpdate = true;
     }
 }
@@ -203,30 +265,36 @@ class Simulation {
     constructor() {
         this.container = document.getElementById('canvas-container');
         this.agents = [];
+        this.scores = { CYAN: 0, MAGENTA: 0, LIME: 0 };
         this.clock = new THREE.Clock();
+        this.timeScale = CONFIG.baseSpeed;
+        this.targetTimeScale = CONFIG.baseSpeed;
+        this.matrixMode = false;
 
         this.initThree();
+        this.shaker = new CameraShake(this.camera);
         this.initEnvironment();
-        this.setupInput();
         
-        // Initial Deployment
-        for(let i=0; i<5; i++) this.addAgent('CYAN');
-        for(let i=0; i<5; i++) this.addAgent('MAGENTA');
+        // Make functions globally accessible
+        window.sim = this;
+
+        // Initial Squads
+        this.addSquad('CYAN');
+        this.addSquad('MAGENTA');
 
         this.animate();
     }
 
     initThree() {
         this.scene = new THREE.Scene();
-        this.scene.fog = new THREE.FogExp2(0x050505, 0.0015);
+        this.scene.fog = new THREE.FogExp2(0x050505, 0.002);
 
         this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
-        this.camera.position.set(0, 100, 200);
+        this.camera.position.set(0, 120, 250);
 
-        this.renderer = new THREE.WebGLRenderer({ antialias: true });
+        this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
-        this.renderer.setPixelRatio(window.devicePixelRatio);
-        this.renderer.shadowMap.enabled = true;
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Cap pixel ratio for performance
         this.container.appendChild(this.renderer.domElement);
 
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -234,17 +302,15 @@ class Simulation {
         this.controls.autoRotate = true;
         this.controls.autoRotateSpeed = 0.5;
 
-        // Post Processing (Bloom)
+        // Bloom
         this.composer = new EffectComposer(this.renderer);
         this.composer.addPass(new RenderPass(this.scene, this.camera));
-        
         const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
-        bloomPass.threshold = 0;
-        bloomPass.strength = 1.2; // Intense bloom
-        bloomPass.radius = 0.5;
+        bloomPass.strength = 1.5;
+        bloomPass.radius = 0.4;
+        bloomPass.threshold = 0.1;
         this.composer.addPass(bloomPass);
 
-        // Responsive resize
         window.addEventListener('resize', () => {
             this.camera.aspect = window.innerWidth / window.innerHeight;
             this.camera.updateProjectionMatrix();
@@ -254,44 +320,72 @@ class Simulation {
     }
 
     initEnvironment() {
-        // Lighting
         const ambientLight = new THREE.AmbientLight(0x404040);
         this.scene.add(ambientLight);
-
-        const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
         dirLight.position.set(100, 200, 100);
-        dirLight.castShadow = true;
         this.scene.add(dirLight);
 
-        // Grid Floor (for visual reference)
-        const gridHelper = new THREE.GridHelper(CONFIG.worldSize, 50, 0x333333, 0x111111);
+        // Grid
+        const gridHelper = new THREE.GridHelper(CONFIG.worldSize, 40, 0x222222, 0x111111);
         this.scene.add(gridHelper);
 
-        // Stars
+        // Starfield
         const starGeo = new THREE.BufferGeometry();
-        const starCount = 2000;
         const starPos = [];
-        for(let i=0; i<starCount; i++) {
+        for(let i=0; i<3000; i++) {
             starPos.push((Math.random()-0.5)*2000, (Math.random()-0.5)*2000, (Math.random()-0.5)*2000);
         }
         starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
-        const starMat = new THREE.PointsMaterial({color: 0xffffff, size: 1.5});
+        const starMat = new THREE.PointsMaterial({color: 0x888888, size: 1});
         this.scene.add(new THREE.Points(starGeo, starMat));
     }
 
-    addAgent(team) {
-        const agent = new Agent(this.scene, team);
-        this.agents.push(agent);
+    addSquad(team) {
+        for(let i=0; i<3; i++) {
+            const agent = new Agent(this.scene, team, this);
+            this.agents.push(agent);
+        }
         this.updateHUD();
     }
 
+    registerKill(teamKey) {
+        if(this.scores[teamKey] !== undefined) {
+            this.scores[teamKey]++;
+            // Update DOM
+            const el = document.getElementById(`score-${teamKey.toLowerCase()}`);
+            if(el) {
+                el.innerText = this.scores[teamKey];
+                el.parentElement.style.transform = "scale(1.2)";
+                setTimeout(() => el.parentElement.style.transform = "scale(1.0)", 200);
+            }
+        }
+    }
+
+    toggleMatrixMode() {
+        this.matrixMode = !this.matrixMode;
+        const btn = document.getElementById('matrix-btn');
+        if(this.matrixMode) {
+            this.targetTimeScale = CONFIG.slowMoSpeed;
+            btn.innerText = "DEACTIVATE MATRIX";
+            btn.classList.add('active');
+            document.getElementById('sys-status').innerText = "SLOW-MOTION";
+        } else {
+            this.targetTimeScale = CONFIG.baseSpeed;
+            btn.innerText = "ACTIVATE MATRIX MODE";
+            btn.classList.remove('active');
+            document.getElementById('sys-status').innerText = "REALISTIC";
+        }
+    }
+
     reset() {
-        // Clean up meshes
         this.agents.forEach(a => {
             this.scene.remove(a.mesh);
             this.scene.remove(a.trail);
         });
         this.agents = [];
+        this.scores = { CYAN: 0, MAGENTA: 0, LIME: 0 };
+        ['cyan', 'magenta', 'lime'].forEach(t => document.getElementById(`score-${t}`).innerText = '0');
         this.updateHUD();
     }
 
@@ -299,39 +393,29 @@ class Simulation {
         document.getElementById('agent-count').innerText = this.agents.length;
     }
 
-    setupInput() {
-        const slider = document.getElementById('time-scale');
-        slider.addEventListener('input', (e) => {
-            CONFIG.speed = parseFloat(e.target.value);
-        });
-        
-        // Make functions globally accessible for HTML buttons
-        window.sim = this; 
-    }
-
     animate() {
         requestAnimationFrame(() => this.animate());
 
-        const delta = this.clock.getDelta() * CONFIG.speed;
-        const now = this.clock.getElapsedTime();
+        // Smooth time scaling
+        this.timeScale += (this.targetTimeScale - this.timeScale) * 0.1;
+        
+        const delta = this.clock.getDelta() * this.timeScale;
+        
+        this.shaker.update(); // Shake camera if explosion happened
 
         // Update Agents
-        // Remove dead agents from array logic would go here in full physics engine
-        // For now we just filter visual updates
         this.agents = this.agents.filter(a => a.alive);
         this.agents.forEach(agent => agent.update(delta, this.agents));
 
         this.controls.update();
-
-        // Render with Bloom
         this.composer.render();
 
-        // HUD Updates
-        document.getElementById('fps-counter').innerText = Math.round(1 / delta || 60);
-        document.getElementById('sim-time').innerText = now.toFixed(1);
-        document.getElementById('agent-count').innerText = this.agents.length;
+        // Stats
+        document.getElementById('fps-counter').innerText = Math.round(1 / (delta/this.timeScale) || 60);
+        // Fake G-Force Calc based on camera movement for fun
+        const gForce = (this.timeScale * 3.5).toFixed(1); 
+        document.getElementById('g-force').innerText = gForce;
     }
 }
 
-// Start
 new Simulation();
