@@ -255,7 +255,7 @@ class Simulation {
         this.shaker = new CameraShake(this.camera);
         this.initEnvironment();
         
-        // GLOBAL REFERENCE (Moved here from setupInput)
+        // GLOBAL REFERENCE
         window.sim = this;
 
         this.addSquad('CYAN');
