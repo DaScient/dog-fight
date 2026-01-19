@@ -1,3 +1,4 @@
+/* Keep previous root variables, add these: */
 :root {
     --color-bg: #050505;
     --color-hud-bg: rgba(10, 15, 30, 0.6);
@@ -9,141 +10,74 @@
 }
 
 body, html {
-    margin: 0;
-    padding: 0;
-    overflow: hidden;
+    margin: 0; padding: 0; overflow: hidden;
     background-color: var(--color-bg);
     font-family: var(--font-main);
     color: var(--color-text);
 }
 
-#canvas-container {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    z-index: 1;
-}
+#canvas-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; }
 
-/* HUD Overlay */
 #hud {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 10;
-    pointer-events: none; /* Let clicks pass through to 3D scene */
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    padding: 2rem;
-    box-sizing: border-box;
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 10; pointer-events: none;
+    display: flex; flex-direction: column; justify-content: space-between;
+    padding: 2rem; box-sizing: border-box;
 }
 
-.hud-header {
-    text-align: center;
-    text-shadow: 0 0 10px var(--color-cyan);
+/* TOP BAR LAYOUT */
+.hud-top-bar {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    width: 100%; pointer-events: auto;
 }
 
-.hud-header h1 {
-    margin: 0;
-    font-weight: 700;
-    letter-spacing: 4px;
-    font-size: 2rem;
-}
+.hud-title h1 { margin: 0; font-size: 2rem; letter-spacing: 4px; text-shadow: 0 0 10px var(--color-cyan); }
+.status { font-size: 0.9rem; color: var(--color-lime); }
+.blink { animation: blinker 2s linear infinite; }
+@keyframes blinker { 50% { opacity: 0; } }
 
-.status {
-    font-size: 0.9rem;
-    color: var(--color-lime);
-}
-
-.blink {
-    animation: blinker 2s linear infinite;
-}
-
-@keyframes blinker {
-    50% { opacity: 0; }
-}
-
-.hud-panel {
+/* SCOREBOARD */
+.scoreboard {
+    display: flex; gap: 2rem;
     background: var(--color-hud-bg);
     backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
-    padding: 1rem;
-    pointer-events: auto; /* Re-enable clicks for buttons */
-    width: 250px;
-    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+    padding: 0.5rem 2rem;
+    border-radius: 0 0 10px 10px;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-top: none;
 }
 
-.hud-panel.left {
-    position: absolute;
-    bottom: 2rem;
-    left: 2rem;
-    border-left: 3px solid var(--color-cyan);
-}
+.score-team { text-align: center; }
+.score-team .label { display: block; font-size: 0.8rem; opacity: 0.7; }
+.score-team .score-val { font-size: 1.8rem; font-weight: 700; }
+.score-team.cyan { color: var(--color-cyan); }
+.score-team.magenta { color: var(--color-magenta); }
+.score-team.lime { color: var(--color-lime); }
 
-.hud-panel.right {
-    position: absolute;
-    bottom: 2rem;
-    right: 2rem;
-    border-right: 3px solid var(--color-magenta);
+/* PANELS */
+.hud-panel {
+    background: var(--color-hud-bg); backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px;
+    padding: 1rem; pointer-events: auto; width: 250px;
 }
+.hud-panel.left { position: absolute; bottom: 2rem; left: 2rem; border-left: 3px solid var(--color-cyan); }
+.hud-panel.right { position: absolute; bottom: 2rem; right: 2rem; border-right: 3px solid var(--color-magenta); }
 
-h3 {
-    margin-top: 0;
-    border-bottom: 1px solid rgba(255,255,255,0.2);
-    padding-bottom: 0.5rem;
-    font-size: 1.2rem;
-    letter-spacing: 2px;
-}
+h3 { margin-top: 0; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 0.5rem; }
+.data-row { display: flex; justify-content: space-between; margin-bottom: 0.5rem; font-size: 1.1rem; }
 
-.data-row {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 0.5rem;
-    font-size: 1.1rem;
-}
-
+/* BUTTONS */
 button {
-    background: rgba(0, 243, 255, 0.1);
-    border: 1px solid var(--color-cyan);
-    color: var(--color-cyan);
-    padding: 0.8rem;
-    width: 100%;
-    margin-bottom: 0.5rem;
-    cursor: pointer;
-    font-family: var(--font-main);
-    font-weight: 600;
-    text-transform: uppercase;
-    transition: all 0.2s;
+    background: rgba(0, 243, 255, 0.1); border: 1px solid var(--color-cyan);
+    color: var(--color-cyan); padding: 0.8rem; width: 100%; margin-bottom: 0.5rem;
+    cursor: pointer; font-family: var(--font-main); font-weight: 600;
+    text-transform: uppercase; transition: all 0.2s;
 }
+button:hover { background: var(--color-cyan); color: #000; box-shadow: 0 0 15px var(--color-cyan); }
+button.danger { border-color: #ff3333; color: #ff3333; }
+button.danger:hover { background: #ff3333; color: white; box-shadow: 0 0 15px #ff3333; }
 
-button:hover {
-    background: var(--color-cyan);
-    color: #000;
-    box-shadow: 0 0 15px var(--color-cyan);
-}
-
-button.danger {
-    border-color: #ff3333;
-    color: #ff3333;
-    background: rgba(255, 51, 51, 0.1);
-}
-
-button.danger:hover {
-    background: #ff3333;
-    color: white;
-    box-shadow: 0 0 15px #ff3333;
-}
-
-.slider-group {
-    margin: 1rem 0;
-}
-
-input[type=range] {
-    width: 100%;
-    accent-color: var(--color-cyan);
+/* Matrix Mode Active State */
+button.active {
+    background: #fff; color: #000; box-shadow: 0 0 20px #fff; border-color: #fff;
 }
