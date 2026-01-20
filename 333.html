@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DaScient’s Dog Fight | Elite 333</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Specific tweaks for the detailed scoreboard */
+        .score-team { display: flex; flex-direction: column; min-width: 100px; }
+        .score-sub { font-size: 0.7rem; opacity: 0.8; display: flex; justify-content: space-between; margin-top: 5px; }
+        .score-val { font-size: 1.5rem; line-height: 1; }
+    </style>
+</head>
+<body>
+    <div id="canvas-container"></div>
+
+    <div id="hud">
+        <div class="hud-top-bar">
+            <div class="hud-title">
+                <h1>ELITE SQUADRON</h1>
+                <div class="status">WING COUNT: <span id="sys-status">333 (STABLE)</span></div>
+            </div>
+            
+            <div class="scoreboard">
+                <div class="score-team cyan">
+                    <span class="label">CYAN (SPEED)</span>
+                    <span class="score-val" id="score-cyan">0</span>
+                    <div class="score-sub"><span>ACTIVE:</span> <span id="active-cyan">0</span></div>
+                </div>
+                <div class="score-team magenta">
+                    <span class="label">MAGENTA (ARMOR)</span>
+                    <span class="score-val" id="score-magenta">0</span>
+                    <div class="score-sub"><span>ACTIVE:</span> <span id="active-magenta">0</span></div>
+                </div>
+                <div class="score-team lime">
+                    <span class="label">LIME (AGILITY)</span>
+                    <span class="score-val" id="score-lime">0</span>
+                    <div class="score-sub"><span>ACTIVE:</span> <span id="active-lime">0</span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="hud-panel left">
+            <h3>BATTLE LOG</h3>
+            <div class="data-row"><span>TOTAL UNITS:</span> <span id="total-agents">0</span></div>
+            <div class="data-row"><span>FPS:</span> <span id="fps-counter">60</span></div>
+            <div class="data-row" style="margin-top:10px; font-size: 0.8rem; color: #888;" id="combat-log">System Ready...</div>
+        </div>
+
+        <div class="hud-panel right">
+            <h3>COMMAND</h3>
+            <button onclick="sim.spawnFormation('CYAN')">WARP IN CYAN WING</button>
+            <button onclick="sim.spawnFormation('MAGENTA')">WARP IN MAGENTA WING</button>
+            <button onclick="sim.spawnFormation('LIME')">WARP IN LIME WING</button>
+            <div class="toggle-container">
+                <button id="matrix-btn" onclick="sim.toggleMatrixMode()">MATRIX MODE</button>
+            </div>
+            <button class="danger" onclick="sim.reset()">RESET SIMULATION</button>
+        </div>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+    <script type="module" src="simulation_333.js"></script>
+</body>
+</html>
