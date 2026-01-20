@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DaScient’s Dog Fight | Massive Swarm Edition</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="canvas-container"></div>
+
+    <div id="hud">
+        <div class="hud-top-bar">
+            <div class="hud-title">
+                <h1>DOG FIGHT: SWARM</h1>
+                <div class="status">ENGINE: <span id="sys-status">MAX CAPACITY</span></div>
+            </div>
+            
+            <div class="scoreboard">
+                <div class="score-team cyan">
+                    <span class="label">INTERCEPTORS</span>
+                    <span class="score-val" id="count-cyan">0</span>
+                </div>
+                <div class="score-team magenta">
+                    <span class="label">DREADNOUGHTS</span>
+                    <span class="score-val" id="count-magenta">0</span>
+                </div>
+                <div class="score-team lime">
+                    <span class="label">VIPERS</span>
+                    <span class="score-val" id="count-lime">0</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="hud-panel left">
+            <h3>TELEMETRY</h3>
+            <div class="data-row"><span>TOTAL UNITS:</span> <span id="total-agents">0</span></div>
+            <div class="data-row"><span>FPS:</span> <span id="fps-counter">0</span></div>
+            <div class="data-row"><span>SIM SPEED:</span> <span id="sim-speed">100%</span></div>
+        </div>
+
+        <div class="hud-panel right">
+            <h3>TACTICAL COMMAND</h3>
+            <button onclick="sim.deploySwarm()">REINFORCE SECTOR (10k)</button>
+            <button id="matrix-btn" onclick="sim.toggleMatrixMode()">MATRIX MODE</button>
+            <button class="danger" onclick="sim.reset()">NUCLEAR RESET</button>
+        </div>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+    <script type="module" src="simulation.js"></script>
+</body>
+</html>
