@@ -9,9 +9,9 @@ const CONFIG = {
     worldSize: 1000,
     baseSpeed: 1.0, 
     slowMoSpeed: 0.1,
-    maxAgents: 60, // Keeps performance buttery smooth with high detail
+    maxAgents: 60, // Cap for smooth performance with high-fidelity agents
     detectionRange: 300,
-    // THE CLASS SYSTEM
+    // THE CLASS SYSTEM: distinct stats for each team
     teams: {
         CYAN: { 
             name: 'INTERCEPTOR', color: 0x00f3ff, shape: 'tetra',
@@ -355,7 +355,7 @@ class Simulation {
         this.scene.add(new THREE.Points(starGeo, starMat));
     }
 
-    // New Formation Spawning Logic
+    // New Formation Spawning Logic (Renamed from addSquad to spawnSquad)
     spawnSquad(team) {
         if(this.agents.length >= CONFIG.maxAgents) return;
 
