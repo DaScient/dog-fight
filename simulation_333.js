@@ -284,3 +284,108 @@ class Simulation {
             this.renderer.setSize(window.innerWidth, window.innerHeight);
             this.composer.setSize(window.innerWidth, window.innerHeight);
         });
+    }
+
+    spawnFormation(team) {
+        if(this.agents.length >= CONFIG.maxAgents) return;
+
+        const count = 12; // Wing size
+        // Spawn Location (Random Edge)
+        const angle = Math.random() * Math.PI * 2;
+        const radius = CONFIG.worldSize * 0.4;
+        const spawnCenter = new THREE.Vector3(Math.cos(angle)*radius, (Math.random()-0.5)*100, Math.sin(angle)*radius);
+        
+        // Velocity (Towards center)
+        const velocity = new THREE.Vector3().subVectors(new THREE.Vector3(0,0,0), spawnCenter).normalize();
+
+        for(let i=0; i<count; i++) {
+            // Offset for formation
+            const offset = new THREE.Vector3();
+            const config = CONFIG.teams[team];
+            
+            if(config.formation === 'V-SHAPE') {
+                offset.set((i%2===0?1:-1)*(i*10), 0, -i*10); 
+            } else if (config.formation === 'WALL') {
+                offset.set((i-count/2)*20, (Math.random()-0.5)*20, 0);
+            } else { // ECHELON
+                offset.set(i*15, i*5, -i*15);
+            }
+            
+            // Rotate offset to match velocity direction
+            const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), velocity);
+            offset.applyQuaternion(q);
+
+            const pos = spawnCenter.clone().add(offset);
+            const agent = new Agent(this.scene, team, pos, velocity);
+            this.agents.push(agent);
+        }
+        this.updateHUD();
+    }
+
+    registerKill(killerTeam, victimTeam) {
+        this.kills[killerTeam]++;
+        document.getElementById(`score-${killerTeam.toLowerCase()}`).innerText = this.kills[killerTeam];
+        this.updateHUD();
+    }
+
+    updateHUD() {
+        // Count Active Units
+        const counts = { CYAN: 0, MAGENTA: 0, LIME: 0 };
+        this.agents.forEach(a => { if(a.alive) counts[a.team]++; });
+        
+        document.getElementById('active-cyan').innerText = counts.CYAN;
+        document.getElementById('active-magenta').innerText = counts.MAGENTA;
+        document.getElementById('active-lime').innerText = counts.LIME;
+        document.getElementById('total-agents').innerText = this.agents.length;
+    }
+
+    log(msg) {
+        const el = document.getElementById('combat-log');
+        el.innerText = msg;
+        el.style.color = '#fff';
+        setTimeout(() => el.style.color = '#888', 500);
+    }
+
+    toggleMatrixMode() {
+        this.matrixMode = !this.matrixMode;
+        const btn = document.getElementById('matrix-btn');
+        if(this.matrixMode) {
+            this.targetTimeScale = CONFIG.slowMoSpeed;
+            btn.innerText = "DEACTIVATE";
+            btn.classList.add('active');
+        } else {
+            this.targetTimeScale = CONFIG.baseSpeed;
+            btn.innerText = "MATRIX MODE";
+            btn.classList.remove('active');
+        }
+    }
+
+    reset() {
+        this.agents.forEach(a => {
+            this.scene.remove(a.mesh);
+            this.scene.remove(a.trail);
+        });
+        this.agents = [];
+        this.kills = { CYAN: 0, MAGENTA: 0, LIME: 0 };
+        ['cyan', 'magenta', 'lime'].forEach(t => {
+            document.getElementById(`score-${t}`).innerText = '0';
+        });
+        this.updateHUD();
+    }
+
+    animate() {
+        requestAnimationFrame(() => this.animate());
+        this.timeScale += (this.targetTimeScale - this.timeScale) * 0.1;
+        const dt = this.clock.getDelta() * this.timeScale;
+
+        // Update Agents
+        this.agents = this.agents.filter(a => a.alive);
+        this.agents.forEach(agent => agent.update(dt, this.agents));
+
+        this.controls.update();
+        this.composer.render();
+        document.getElementById('fps-counter').innerText = Math.round(1/(dt/this.timeScale)) || 60;
+    }
+}
+
+new Simulation();
