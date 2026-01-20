@@ -6,7 +6,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 
 // --- CONFIGURATION ---
 const CONFIG = {
-    worldSize: 2500,
+    worldSize: 1500,
     initialCount: 333, // 33,333 THE Original GOAL
     maxParticles: 10, // 1000
     baseSpeed: 0.777, // 1.0
