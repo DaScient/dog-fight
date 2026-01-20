@@ -4,18 +4,27 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
-// --- CONFIGURATION ---
+// --- CONFIGURATION & ARSENAL ---
 const CONFIG = {
-    worldSize: 800,
+    worldSize: 1000,
     baseSpeed: 1.0, 
     slowMoSpeed: 0.1,
-    agentSpeed: 2.0,
-    turnSpeed: 0.06,
-    detectionRange: 200,
+    maxAgents: 60, // Keeps performance buttery smooth with high detail
+    detectionRange: 300,
+    // THE CLASS SYSTEM
     teams: {
-        CYAN: { color: 0x00f3ff, shape: 'tetra' },
-        MAGENTA: { color: 0xff00ff, shape: 'box' },
-        LIME: { color: 0xccff00, shape: 'octa' }
+        CYAN: { 
+            name: 'INTERCEPTOR', color: 0x00f3ff, shape: 'tetra',
+            hp: 40, speed: 2.8, turn: 0.1, damage: 8, fireRate: 0.08, scale: 1.5 
+        },
+        MAGENTA: { 
+            name: 'DREADNOUGHT', color: 0xff00ff, shape: 'box',
+            hp: 200, speed: 0.8, turn: 0.02, damage: 40, fireRate: 0.02, scale: 5.0 
+        },
+        LIME: { 
+            name: 'VIPER', color: 0xccff00, shape: 'octa',
+            hp: 80, speed: 2.0, turn: 0.06, damage: 15, fireRate: 0.05, scale: 2.2 
+        }
     }
 };
 
@@ -30,7 +39,7 @@ class CameraShake {
         this.decay = 0.95;
     }
     trigger(intensity) {
-        this.shakeIntensity = Math.min(this.shakeIntensity + intensity, 2.0);
+        this.shakeIntensity = Math.min(this.shakeIntensity + intensity, 2.5);
     }
     update() {
         if (this.shakeIntensity > 0.01) {
@@ -45,45 +54,49 @@ class CameraShake {
 
 // --- CLASS: AGENT ---
 class Agent {
-    constructor(scene, teamKey, simReference) {
+    constructor(scene, teamKey, simReference, startPos) {
         this.scene = scene;
         this.team = teamKey;
         this.sim = simReference;
+        this.stats = CONFIG.teams[teamKey]; // Load Class Stats
         this.alive = true;
-        this.hp = 100;
+        this.hp = this.stats.hp;
         this.target = null;
         
-        // Physics
-        this.position = new THREE.Vector3(
-            randomRange(-200, 200), randomRange(-50, 50), randomRange(-200, 200)
-        );
-        this.velocity = new THREE.Vector3(randomRange(-1, 1), randomRange(-1, 1), randomRange(-1, 1))
-            .normalize().multiplyScalar(CONFIG.agentSpeed);
+        // Physics (Spawn Logic)
+        if(startPos) {
+            this.position = startPos.clone();
+            // Fly towards center initially
+            this.velocity = new THREE.Vector3(0,0,0).sub(startPos).normalize().multiplyScalar(this.stats.speed);
+        } else {
+            this.position = new THREE.Vector3(randomRange(-200, 200), randomRange(-50, 50), randomRange(-200, 200));
+            this.velocity = new THREE.Vector3(randomRange(-1, 1), randomRange(-1, 1), randomRange(-1, 1)).normalize().multiplyScalar(this.stats.speed);
+        }
         
-        // Visuals
-        const teamConfig = CONFIG.teams[teamKey];
+        // Visuals (Shape & Size based on Class)
         let geometry;
-        if(teamConfig.shape === 'tetra') geometry = new THREE.TetrahedronGeometry(2);
-        else if(teamConfig.shape === 'box') geometry = new THREE.BoxGeometry(3, 1, 4);
-        else geometry = new THREE.OctahedronGeometry(2);
+        if(this.stats.shape === 'tetra') geometry = new THREE.TetrahedronGeometry(1);
+        else if(this.stats.shape === 'box') geometry = new THREE.BoxGeometry(1, 0.5, 2);
+        else geometry = new THREE.OctahedronGeometry(1);
 
         const material = new THREE.MeshStandardMaterial({ 
             color: 0x111111, 
-            emissive: teamConfig.color,
-            emissiveIntensity: 3.0,
-            roughness: 0.2,
-            metalness: 0.9
+            emissive: this.stats.color,
+            emissiveIntensity: 2.5,
+            roughness: 0.3,
+            metalness: 0.8
         });
 
         this.mesh = new THREE.Mesh(geometry, material);
+        this.mesh.scale.setScalar(this.stats.scale); // Apply Class Scaling
         this.mesh.castShadow = true;
         scene.add(this.mesh);
 
         // Engine Trail
         this.trailGeo = new THREE.BufferGeometry();
-        this.trailPositions = new Float32Array(60 * 3);
+        this.trailPositions = new Float32Array(50 * 3);
         this.trailGeo.setAttribute('position', new THREE.BufferAttribute(this.trailPositions, 3));
-        this.trailMat = new THREE.LineBasicMaterial({ color: teamConfig.color, transparent: true, opacity: 0.6 });
+        this.trailMat = new THREE.LineBasicMaterial({ color: this.stats.color, transparent: true, opacity: 0.5 });
         this.trail = new THREE.Line(this.trailGeo, this.trailMat);
         scene.add(this.trail);
     }
@@ -98,36 +111,38 @@ class Agent {
         
         if (this.target && this.target.alive) {
             // Lead the target
-            const leadPos = this.target.position.clone().add(this.target.velocity.clone().multiplyScalar(10));
+            const leadPos = this.target.position.clone().add(this.target.velocity.clone().multiplyScalar(15));
             desiredDirection.subVectors(leadPos, this.position).normalize();
             
-            // Engagement Distance
+            // Engagement Check
             const dist = this.position.distanceTo(this.target.mesh.position);
             const angle = this.velocity.angleTo(desiredDirection);
             
-            if(dist < 80 && angle < 0.3) this.fire(dt);
+            // Firing Solution
+            if(dist < 300 && angle < 0.5) this.fire(dt);
 
         } else {
-            // Patrol
-            if (this.position.length() > CONFIG.worldSize / 2) {
+            // Patrol / Return to Battlespace
+            if (this.position.length() > CONFIG.worldSize / 1.5) {
                 desiredDirection.subVectors(new THREE.Vector3(0,0,0), this.position).normalize();
             } else {
                 desiredDirection.copy(this.velocity).normalize();
             }
         }
 
-        // 2. Aerodynamics
+        // 2. Physics (Class-Specific Agility)
         const currentDir = this.velocity.clone().normalize();
-        currentDir.lerp(desiredDirection, CONFIG.turnSpeed * dt * 60);
-        this.velocity.copy(currentDir).setLength(CONFIG.agentSpeed);
+        // Heavier ships turn slower
+        currentDir.lerp(desiredDirection, this.stats.turn * dt * 60);
+        this.velocity.copy(currentDir).setLength(this.stats.speed);
 
         this.position.add(this.velocity.clone().multiplyScalar(dt * 60));
 
-        // 3. Banking
+        // 3. Orientation
         const targetQuaternion = new THREE.Quaternion();
         const m = new THREE.Matrix4().lookAt(this.position, this.position.clone().add(this.velocity), new THREE.Vector3(0, 1, 0));
         targetQuaternion.setFromRotationMatrix(m);
-        this.mesh.quaternion.slerp(targetQuaternion, 0.15);
+        this.mesh.quaternion.slerp(targetQuaternion, 0.1);
         this.mesh.position.copy(this.position);
 
         this.updateTrail();
@@ -148,28 +163,39 @@ class Agent {
     }
 
     fire(dt) {
-        if(Math.random() < 0.08) { 
-           // Laser
+        // Class-Specific Fire Rate
+        if(Math.random() < this.stats.fireRate) { 
+           // Laser Visual
            const laserGeo = new THREE.BufferGeometry().setFromPoints([this.position, this.target.position]);
-           const laserMat = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 });
+           const laserMat = new THREE.LineBasicMaterial({ 
+               color: this.stats.color, // Lasers match team color
+               linewidth: 1 
+            });
            const laser = new THREE.Line(laserGeo, laserMat);
            this.scene.add(laser);
+           
+           // Cleanup Laser
            setTimeout(() => { 
                this.scene.remove(laser); 
                laserGeo.dispose(); laserMat.dispose();
-            }, 40);
+            }, 50);
 
-           // Recoil
-           this.position.sub(this.velocity.clone().normalize().multiplyScalar(0.2));
-           this.target.takeDamage(15, this.team);
+           // Physics Recoil (Heavy ships recoil less)
+           const recoil = 0.5 / this.stats.scale;
+           this.position.sub(this.velocity.clone().normalize().multiplyScalar(recoil));
+           
+           // Apply Damage
+           this.target.takeDamage(this.stats.damage, this.team);
         }
     }
 
     takeDamage(amount, attackerTeam) {
         this.hp -= amount;
-        this.mesh.material.emissive.setHex(0xffffff);
+        
+        // Flash Hit Effect
+        this.mesh.material.emissiveIntensity = 8.0;
         setTimeout(() => {
-            if(this.alive) this.mesh.material.emissive.setHex(CONFIG.teams[this.team].color);
+            if(this.alive) this.mesh.material.emissiveIntensity = 2.5;
         }, 50);
 
         if(this.hp <= 0 && this.alive) {
@@ -183,33 +209,39 @@ class Agent {
         this.mesh.visible = false;
         this.trail.visible = false;
         
-        this.sim.shaker.trigger(0.8);
+        // Camera Shake based on ship size (Dreadnoughts shake screen hard)
+        this.sim.shaker.trigger(0.2 * this.stats.scale);
 
-        // Particles
-        const particleCount = 30;
+        // Explosion Particles
+        const particleCount = 15 * this.stats.scale; // Bigger explosion for bigger ships
         const geo = new THREE.BufferGeometry();
         const positions = [];
         const velocities = [];
         for(let i=0; i<particleCount; i++) {
             positions.push(this.position.x, this.position.y, this.position.z);
-            velocities.push((Math.random()-0.5)*3, (Math.random()-0.5)*3, (Math.random()-0.5)*3);
+            velocities.push(
+                (Math.random()-0.5)*3 * this.stats.scale, 
+                (Math.random()-0.5)*3 * this.stats.scale, 
+                (Math.random()-0.5)*3 * this.stats.scale
+            );
         }
         geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-        const mat = new THREE.PointsMaterial({ color: CONFIG.teams[this.team].color, size: 3, transparent: true });
+        const mat = new THREE.PointsMaterial({ color: this.stats.color, size: 2 * this.stats.scale, transparent: true });
         const particles = new THREE.Points(geo, mat);
         this.scene.add(particles);
 
-        // Shockwave
-        const ringGeo = new THREE.RingGeometry(0.1, 0.5, 32);
+        // Shockwave Ring
+        const ringGeo = new THREE.RingGeometry(0.1, 1.0 * this.stats.scale, 32);
         const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, transparent: true, opacity: 0.8 });
         const shockwave = new THREE.Mesh(ringGeo, ringMat);
         shockwave.position.copy(this.position);
         shockwave.lookAt(this.sim.camera.position); 
         this.scene.add(shockwave);
 
+        // Animation
         const explodeAnim = () => {
             if(!particles.parent) return; 
-            shockwave.scale.multiplyScalar(1.15);
+            shockwave.scale.multiplyScalar(1.1);
             shockwave.material.opacity -= 0.05;
 
             const posAttr = particles.geometry.attributes.position;
@@ -219,7 +251,7 @@ class Agent {
                 posAttr.setZ(i, posAttr.getZ(i) + velocities[i*3+2]);
             }
             posAttr.needsUpdate = true;
-            mat.opacity -= 0.02;
+            mat.opacity -= 0.03;
 
             if(mat.opacity <= 0) {
                 this.scene.remove(particles);
@@ -255,11 +287,21 @@ class Simulation {
         this.shaker = new CameraShake(this.camera);
         this.initEnvironment();
         
-        // GLOBAL REFERENCE
         window.sim = this;
 
-        this.addSquad('CYAN');
-        this.addSquad('MAGENTA');
+        // Initial Deployment
+        this.spawnSquad('CYAN');
+        this.spawnSquad('MAGENTA');
+
+        // AUTO-SPAWN LOGIC (Reinforcements)
+        setInterval(() => {
+            if(this.agents.length < CONFIG.maxAgents) {
+                const teams = Object.keys(CONFIG.teams);
+                const randomTeam = teams[Math.floor(Math.random() * teams.length)];
+                this.spawnSquad(randomTeam);
+                // console.log(`Reinforcements arriving: ${randomTeam}`);
+            }
+        }, 4000); // Check every 4 seconds
 
         this.animate();
     }
@@ -269,7 +311,7 @@ class Simulation {
         this.scene.fog = new THREE.FogExp2(0x050505, 0.002);
 
         this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
-        this.camera.position.set(0, 120, 250);
+        this.camera.position.set(0, 120, 350);
 
         this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -279,14 +321,12 @@ class Simulation {
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
         this.controls.enableDamping = true;
         this.controls.autoRotate = true;
-        this.controls.autoRotateSpeed = 0.5;
+        this.controls.autoRotateSpeed = 0.3;
 
         this.composer = new EffectComposer(this.renderer);
         this.composer.addPass(new RenderPass(this.scene, this.camera));
         const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
-        bloomPass.strength = 1.5;
-        bloomPass.radius = 0.4;
-        bloomPass.threshold = 0.1;
+        bloomPass.strength = 1.5; bloomPass.radius = 0.4; bloomPass.threshold = 0.1;
         this.composer.addPass(bloomPass);
 
         window.addEventListener('resize', () => {
@@ -311,13 +351,30 @@ class Simulation {
         const starPos = [];
         for(let i=0; i<3000; i++) starPos.push((Math.random()-0.5)*2000, (Math.random()-0.5)*2000, (Math.random()-0.5)*2000);
         starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
-        const starMat = new THREE.PointsMaterial({color: 0x888888, size: 1});
+        const starMat = new THREE.PointsMaterial({color: 0x888888, size: 1.5});
         this.scene.add(new THREE.Points(starGeo, starMat));
     }
 
-    addSquad(team) {
-        for(let i=0; i<3; i++) {
-            this.agents.push(new Agent(this.scene, team, this));
+    // New Formation Spawning Logic
+    spawnSquad(team) {
+        if(this.agents.length >= CONFIG.maxAgents) return;
+
+        // Pick a random entry point at the edge of the world
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 500;
+        const startX = Math.cos(angle) * radius;
+        const startZ = Math.sin(angle) * radius;
+        const startY = (Math.random() - 0.5) * 200;
+        
+        // Spawn 3-5 units in a cluster
+        const squadSize = Math.floor(randomRange(3, 6));
+        
+        for(let i=0; i<squadSize; i++) {
+            // Add slight randomness to formation so they don't clip
+            const offset = new THREE.Vector3(randomRange(-20,20), randomRange(-10,10), randomRange(-20,20));
+            const spawnPos = new THREE.Vector3(startX, startY, startZ).add(offset);
+            
+            this.agents.push(new Agent(this.scene, team, this, spawnPos));
         }
         this.updateHUD();
     }
@@ -371,8 +428,11 @@ class Simulation {
         const delta = this.clock.getDelta() * this.timeScale;
         
         this.shaker.update();
+        
+        // Update & Cleanup
         this.agents = this.agents.filter(a => a.alive);
         this.agents.forEach(agent => agent.update(delta, this.agents));
+        
         this.controls.update();
         this.composer.render();
         
