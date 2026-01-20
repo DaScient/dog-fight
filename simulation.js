@@ -4,202 +4,244 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
-// --- CONFIGURATION & ARSENAL ---
+// --- CONFIGURATION ---
 const CONFIG = {
-    worldSize: 1000,
+    worldSize: 1200,
+    seaLevel: 0,
     baseSpeed: 1.0, 
     slowMoSpeed: 0.1,
-    maxAgents: 60, // Cap for smooth performance with high-fidelity agents
-    detectionRange: 300,
-    // THE CLASS SYSTEM: distinct stats for each team
+    maxAgents: 80,
     teams: {
-        CYAN: { 
-            name: 'INTERCEPTOR', color: 0x00f3ff, shape: 'tetra',
-            hp: 40, speed: 2.8, turn: 0.1, damage: 8, fireRate: 0.08, scale: 1.5 
-        },
-        MAGENTA: { 
-            name: 'DREADNOUGHT', color: 0xff00ff, shape: 'box',
-            hp: 200, speed: 0.8, turn: 0.02, damage: 40, fireRate: 0.02, scale: 5.0 
-        },
-        LIME: { 
-            name: 'VIPER', color: 0xccff00, shape: 'octa',
-            hp: 80, speed: 2.0, turn: 0.06, damage: 15, fireRate: 0.05, scale: 2.2 
-        }
+        CYAN:   { type: 'AIR',   color: 0x00f3ff, hp: 50, speed: 3.0, range: 400 },
+        MAGENTA:{ type: 'SEA',   color: 0xff00ff, hp: 150, speed: 1.2, range: 250 },
+        LIME:   { type: 'LAND',  color: 0xccff00, hp: 200, speed: 0.0, range: 500 } // Stationary Turrets
     }
 };
 
-// --- UTILITIES ---
 const randomRange = (min, max) => Math.random() * (max - min) + min;
 
-// --- CAMERA SHAKE SYSTEM ---
-class CameraShake {
-    constructor(camera) {
-        this.camera = camera;
-        this.shakeIntensity = 0;
-        this.decay = 0.95;
+// --- ENVIRONMENT BUILDER ---
+class Environment {
+    constructor(scene) {
+        this.scene = scene;
+        this.obstacles = []; // Collision objects
+
+        // 1. THE OCEAN SURFACE (Transparent Plane)
+        const seaGeo = new THREE.PlaneGeometry(CONFIG.worldSize * 2, CONFIG.worldSize * 2);
+        const seaMat = new THREE.MeshBasicMaterial({ 
+            color: 0x001133, transparent: true, opacity: 0.3, side: THREE.DoubleSide 
+        });
+        const sea = new THREE.Mesh(seaGeo, seaMat);
+        sea.rotation.x = -Math.PI / 2;
+        scene.add(sea);
+
+        // 2. THE SEABED (Grid)
+        const grid = new THREE.GridHelper(CONFIG.worldSize, 50, 0x0044ff, 0x001122);
+        grid.position.y = -300;
+        scene.add(grid);
+
+        // 3. HARD-CODED STRUCTURES (Islands & Sea Labs)
+        this.generateStructures();
     }
-    trigger(intensity) {
-        this.shakeIntensity = Math.min(this.shakeIntensity + intensity, 2.5);
-    }
-    update() {
-        if (this.shakeIntensity > 0.01) {
-            const rx = (Math.random() - 0.5) * this.shakeIntensity;
-            const ry = (Math.random() - 0.5) * this.shakeIntensity;
-            const rz = (Math.random() - 0.5) * this.shakeIntensity;
-            this.camera.position.add(new THREE.Vector3(rx, ry, rz));
-            this.shakeIntensity *= this.decay;
+
+    generateStructures() {
+        // Shared Material for obstacles
+        const obsMat = new THREE.MeshStandardMaterial({ 
+            color: 0x111111, roughness: 0.1, metalness: 0.9, 
+            emissive: 0x222222, emissiveIntensity: 0.5 
+        });
+
+        // A. SURFACE ISLANDS (Blocks)
+        for(let i=0; i<8; i++) {
+            const w = randomRange(40, 100);
+            const h = randomRange(50, 150);
+            const d = randomRange(40, 100);
+            const geo = new THREE.BoxGeometry(w, h, d);
+            const mesh = new THREE.Mesh(geo, obsMat);
+            
+            mesh.position.set(randomRange(-500, 500), h/2 - 20, randomRange(-500, 500));
+            this.scene.add(mesh);
+            this.obstacles.push({ mesh: mesh, type: 'LAND_OBSTACLE' });
+        }
+
+        // B. DEEP SEA LABS (Spheres)
+        for(let i=0; i<6; i++) {
+            const geo = new THREE.IcosahedronGeometry(randomRange(30, 60), 1);
+            const mesh = new THREE.Mesh(geo, obsMat);
+            mesh.position.set(randomRange(-500, 500), randomRange(-250, -50), randomRange(-500, 500));
+            this.scene.add(mesh);
+            this.obstacles.push({ mesh: mesh, type: 'SEA_OBSTACLE' });
         }
     }
 }
 
-// --- CLASS: AGENT ---
+// --- PROJECTILE SYSTEM (Bombs, Missiles, Torpedoes) ---
+class Projectile {
+    constructor(scene, start, target, type, color) {
+        this.scene = scene;
+        this.pos = start.clone();
+        this.target = target;
+        this.type = type; // 'LASER', 'BOMB', 'TORPEDO'
+        this.active = true;
+        this.color = color;
+
+        // Physics Setup
+        if(type === 'BOMB') this.vel = new THREE.Vector3(0, -2, 0); // Gravity
+        else if(type === 'TORPEDO') this.vel = target.position.clone().sub(start).normalize().multiplyScalar(1.5);
+        else this.vel = target.position.clone().sub(start).normalize().multiplyScalar(8); // Laser is fast
+
+        // Visuals
+        const geo = type === 'LASER' ? new THREE.BoxGeometry(1,1,6) : new THREE.SphereGeometry(1.5);
+        const mat = new THREE.MeshBasicMaterial({ color: color });
+        this.mesh = new THREE.Mesh(geo, mat);
+        this.mesh.position.copy(this.pos);
+        scene.add(this.mesh);
+    }
+
+    update(dt) {
+        if(!this.active) return;
+
+        // Logic per type
+        if(this.type === 'BOMB') {
+            this.vel.y -= 0.1 * dt * 60; // Gravity accel
+        } else if (this.type === 'TORPEDO') {
+            // Homing logic (slow turn)
+            if(this.target && this.target.alive) {
+                const ideal = this.target.position.clone().sub(this.pos).normalize().multiplyScalar(1.5);
+                this.vel.lerp(ideal, 0.05);
+            }
+        }
+
+        this.pos.add(this.vel.clone().multiplyScalar(dt * 60));
+        this.mesh.position.copy(this.pos);
+        this.mesh.lookAt(this.pos.clone().add(this.vel));
+
+        // SPLASH CHECK (Water surface interaction)
+        if(this.pos.y < 5 && this.pos.y > -5 && this.type === 'BOMB') {
+            window.sim.fx.createSplash(this.pos);
+        }
+
+        // COLLISION CHECK
+        if(this.target && this.target.alive && this.pos.distanceTo(this.target.position) < 15) {
+            this.target.takeDamage(25, this.type); // Hit!
+            this.kill();
+        }
+
+        // Timeout distance
+        if(this.pos.length() > CONFIG.worldSize) this.kill();
+    }
+
+    kill() {
+        this.active = false;
+        this.scene.remove(this.mesh);
+    }
+}
+
+// --- AGENT CLASS (Polymorphic-ish) ---
 class Agent {
-    constructor(scene, teamKey, simReference, startPos) {
+    constructor(scene, teamKey, sim) {
         this.scene = scene;
         this.team = teamKey;
-        this.sim = simReference;
-        this.stats = CONFIG.teams[teamKey]; // Load Class Stats
-        this.alive = true;
+        this.sim = sim;
+        this.stats = CONFIG.teams[teamKey];
         this.hp = this.stats.hp;
-        this.target = null;
+        this.alive = true;
         
-        // Physics (Spawn Logic)
-        if(startPos) {
-            this.position = startPos.clone();
-            // Fly towards center initially
-            this.velocity = new THREE.Vector3(0,0,0).sub(startPos).normalize().multiplyScalar(this.stats.speed);
-        } else {
-            this.position = new THREE.Vector3(randomRange(-200, 200), randomRange(-50, 50), randomRange(-200, 200));
-            this.velocity = new THREE.Vector3(randomRange(-1, 1), randomRange(-1, 1), randomRange(-1, 1)).normalize().multiplyScalar(this.stats.speed);
+        // --- DOMAIN LOGIC ---
+        if(this.stats.type === 'AIR') {
+            this.position = new THREE.Vector3(randomRange(-400,400), randomRange(100, 300), randomRange(-400,400));
+            this.velocity = new THREE.Vector3(1,0,0);
+            this.geometry = new THREE.TetrahedronGeometry(2);
+        } 
+        else if (this.stats.type === 'SEA') {
+            this.position = new THREE.Vector3(randomRange(-400,400), randomRange(-200, -20), randomRange(-400,400));
+            this.velocity = new THREE.Vector3(0.5,0,0);
+            this.geometry = new THREE.BoxGeometry(3, 1, 6); // Submarine shape
         }
-        
-        // Visuals (Shape & Size based on Class)
-        let geometry;
-        if(this.stats.shape === 'tetra') geometry = new THREE.TetrahedronGeometry(1);
-        else if(this.stats.shape === 'box') geometry = new THREE.BoxGeometry(1, 0.5, 2);
-        else geometry = new THREE.OctahedronGeometry(1);
+        else { // LAND (Stationary Turret)
+            // Spawn on top of a random land obstacle
+            const obs = sim.env.obstacles.filter(o => o.type === 'LAND_OBSTACLE');
+            if(obs.length > 0) {
+                const land = obs[Math.floor(Math.random()*obs.length)].mesh;
+                this.position = land.position.clone();
+                this.position.y += land.geometry.parameters.height/2 + 2; // Sit on top
+            } else {
+                this.position = new THREE.Vector3(0, 10, 0);
+            }
+            this.velocity = new THREE.Vector3(0,0,0); // Stationary
+            this.geometry = new THREE.CylinderGeometry(2, 3, 4, 8);
+        }
 
-        const material = new THREE.MeshStandardMaterial({ 
-            color: 0x111111, 
-            emissive: this.stats.color,
-            emissiveIntensity: 2.5,
-            roughness: 0.3,
-            metalness: 0.8
+        const mat = new THREE.MeshStandardMaterial({ 
+            color: 0x111111, emissive: this.stats.color, emissiveIntensity: 3, roughness: 0.2
         });
-
-        this.mesh = new THREE.Mesh(geometry, material);
-        this.mesh.scale.setScalar(this.stats.scale); // Apply Class Scaling
-        this.mesh.castShadow = true;
+        
+        this.mesh = new THREE.Mesh(this.geometry, mat);
+        this.mesh.position.copy(this.position);
         scene.add(this.mesh);
-
-        // Engine Trail
-        this.trailGeo = new THREE.BufferGeometry();
-        this.trailPositions = new Float32Array(50 * 3);
-        this.trailGeo.setAttribute('position', new THREE.BufferAttribute(this.trailPositions, 3));
-        this.trailMat = new THREE.LineBasicMaterial({ color: this.stats.color, transparent: true, opacity: 0.5 });
-        this.trail = new THREE.Line(this.trailGeo, this.trailMat);
-        scene.add(this.trail);
     }
 
     update(dt, agents) {
-        if (!this.alive) return;
+        if(!this.alive) return;
 
-        // 1. AI Logic
-        if (!this.target || !this.target.alive) this.findTarget(agents);
+        // TARGETING
+        if(!this.target || !this.target.alive) {
+            this.target = agents.find(a => a.alive && a.team !== this.team && this.position.distanceTo(a.position) < this.stats.range);
+        }
 
-        const desiredDirection = new THREE.Vector3();
-        
-        if (this.target && this.target.alive) {
-            // Lead the target
-            const leadPos = this.target.position.clone().add(this.target.velocity.clone().multiplyScalar(15));
-            desiredDirection.subVectors(leadPos, this.position).normalize();
-            
-            // Engagement Check
-            const dist = this.position.distanceTo(this.target.mesh.position);
-            const angle = this.velocity.angleTo(desiredDirection);
-            
-            // Firing Solution
-            if(dist < 300 && angle < 0.5) this.fire(dt);
+        // MOVEMENT LOGIC
+        if(this.stats.type !== 'LAND') {
+            const desired = new THREE.Vector3();
 
-        } else {
-            // Patrol / Return to Battlespace
-            if (this.position.length() > CONFIG.worldSize / 1.5) {
-                desiredDirection.subVectors(new THREE.Vector3(0,0,0), this.position).normalize();
+            if(this.target) {
+                // Intercept Logic
+                desired.subVectors(this.target.position, this.position).normalize();
+                
+                // Attack logic
+                if(Math.random() < 0.02) this.attack();
+
             } else {
-                desiredDirection.copy(this.velocity).normalize();
+                // Patrol Logic (Stay in domain)
+                if(this.position.length() > 500) desired.subVectors(new THREE.Vector3(0, (this.stats.type==='AIR'?150:-100), 0), this.position).normalize();
+                else desired.copy(this.velocity).normalize();
+            }
+
+            // Domain Constraints (Don't let subs fly, don't let jets swim)
+            if(this.stats.type === 'AIR' && this.position.y < 20) desired.y += 1; // Pull up
+            if(this.stats.type === 'SEA' && this.position.y > -10) desired.y -= 1; // Dive
+
+            // Apply steering
+            const steer = this.velocity.clone().normalize().lerp(desired, 0.05).setLength(this.stats.speed);
+            this.velocity.copy(steer);
+            this.position.add(this.velocity.clone().multiplyScalar(dt * 60));
+            
+            // Visual Rotation
+            this.mesh.lookAt(this.position.clone().add(this.velocity));
+        } else {
+            // TURRET LOGIC (Rotate to face target only)
+            if(this.target) {
+                this.mesh.lookAt(this.target.position);
+                if(Math.random() < 0.04) this.attack();
             }
         }
 
-        // 2. Physics (Class-Specific Agility)
-        const currentDir = this.velocity.clone().normalize();
-        // Heavier ships turn slower
-        currentDir.lerp(desiredDirection, this.stats.turn * dt * 60);
-        this.velocity.copy(currentDir).setLength(this.stats.speed);
-
-        this.position.add(this.velocity.clone().multiplyScalar(dt * 60));
-
-        // 3. Orientation
-        const targetQuaternion = new THREE.Quaternion();
-        const m = new THREE.Matrix4().lookAt(this.position, this.position.clone().add(this.velocity), new THREE.Vector3(0, 1, 0));
-        targetQuaternion.setFromRotationMatrix(m);
-        this.mesh.quaternion.slerp(targetQuaternion, 0.1);
         this.mesh.position.copy(this.position);
-
-        this.updateTrail();
     }
 
-    findTarget(agents) {
-        let minDist = Infinity;
-        let bestTarget = null;
-        for (const other of agents) {
-            if (other === this || !other.alive || other.team === this.team) continue;
-            const dist = this.position.distanceTo(other.position);
-            if (dist < CONFIG.detectionRange && dist < minDist) {
-                minDist = dist;
-                bestTarget = other;
-            }
-        }
-        this.target = bestTarget;
+    attack() {
+        // Determine weapon type based on domain
+        let weaponType = 'LASER';
+        if(this.stats.type === 'AIR' && this.target.position.y < 10) weaponType = 'BOMB'; // Bomb ground/sea
+        if(this.stats.type === 'SEA') weaponType = 'TORPEDO'; // Subs use torpedoes
+
+        this.sim.spawnProjectile(this.position, this.target, weaponType, this.stats.color);
     }
 
-    fire(dt) {
-        // Class-Specific Fire Rate
-        if(Math.random() < this.stats.fireRate) { 
-           // Laser Visual
-           const laserGeo = new THREE.BufferGeometry().setFromPoints([this.position, this.target.position]);
-           const laserMat = new THREE.LineBasicMaterial({ 
-               color: this.stats.color, // Lasers match team color
-               linewidth: 1 
-            });
-           const laser = new THREE.Line(laserGeo, laserMat);
-           this.scene.add(laser);
-           
-           // Cleanup Laser
-           setTimeout(() => { 
-               this.scene.remove(laser); 
-               laserGeo.dispose(); laserMat.dispose();
-            }, 50);
-
-           // Physics Recoil (Heavy ships recoil less)
-           const recoil = 0.5 / this.stats.scale;
-           this.position.sub(this.velocity.clone().normalize().multiplyScalar(recoil));
-           
-           // Apply Damage
-           this.target.takeDamage(this.stats.damage, this.team);
-        }
-    }
-
-    takeDamage(amount, attackerTeam) {
-        this.hp -= amount;
-        
-        // Flash Hit Effect
-        this.mesh.material.emissiveIntensity = 8.0;
-        setTimeout(() => {
-            if(this.alive) this.mesh.material.emissiveIntensity = 2.5;
-        }, 50);
-
+    takeDamage(amt, type) {
+        this.hp -= amt;
+        this.mesh.scale.multiplyScalar(0.95); // Visual feedback
         if(this.hp <= 0 && this.alive) {
-            this.sim.registerKill(attackerTeam);
+            this.sim.registerKill(this.team);
             this.explode();
         }
     }
@@ -207,128 +249,160 @@ class Agent {
     explode() {
         this.alive = false;
         this.mesh.visible = false;
-        this.trail.visible = false;
-        
-        // Camera Shake based on ship size (Dreadnoughts shake screen hard)
-        this.sim.shaker.trigger(0.2 * this.stats.scale);
-
-        // Explosion Particles
-        const particleCount = 15 * this.stats.scale; // Bigger explosion for bigger ships
-        const geo = new THREE.BufferGeometry();
-        const positions = [];
-        const velocities = [];
-        for(let i=0; i<particleCount; i++) {
-            positions.push(this.position.x, this.position.y, this.position.z);
-            velocities.push(
-                (Math.random()-0.5)*3 * this.stats.scale, 
-                (Math.random()-0.5)*3 * this.stats.scale, 
-                (Math.random()-0.5)*3 * this.stats.scale
-            );
-        }
-        geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-        const mat = new THREE.PointsMaterial({ color: this.stats.color, size: 2 * this.stats.scale, transparent: true });
-        const particles = new THREE.Points(geo, mat);
-        this.scene.add(particles);
-
-        // Shockwave Ring
-        const ringGeo = new THREE.RingGeometry(0.1, 1.0 * this.stats.scale, 32);
-        const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, transparent: true, opacity: 0.8 });
-        const shockwave = new THREE.Mesh(ringGeo, ringMat);
-        shockwave.position.copy(this.position);
-        shockwave.lookAt(this.sim.camera.position); 
-        this.scene.add(shockwave);
-
-        // Animation
-        const explodeAnim = () => {
-            if(!particles.parent) return; 
-            shockwave.scale.multiplyScalar(1.1);
-            shockwave.material.opacity -= 0.05;
-
-            const posAttr = particles.geometry.attributes.position;
-            for(let i=0; i<particleCount; i++) {
-                posAttr.setX(i, posAttr.getX(i) + velocities[i*3]);
-                posAttr.setY(i, posAttr.getY(i) + velocities[i*3+1]);
-                posAttr.setZ(i, posAttr.getZ(i) + velocities[i*3+2]);
-            }
-            posAttr.needsUpdate = true;
-            mat.opacity -= 0.03;
-
-            if(mat.opacity <= 0) {
-                this.scene.remove(particles);
-                this.scene.remove(shockwave);
-                geo.dispose(); mat.dispose();
-            } else {
-                requestAnimationFrame(explodeAnim);
-            }
-        };
-        explodeAnim();
-    }
-
-    updateTrail() {
-        const positions = this.trail.geometry.attributes.position.array;
-        for (let i = positions.length - 1; i > 2; i--) positions[i] = positions[i - 3];
-        positions[0] = this.position.x; positions[1] = this.position.y; positions[2] = this.position.z;
-        this.trail.geometry.attributes.position.needsUpdate = true;
+        // Big Explosion for bigger units
+        const scale = this.stats.type === 'LAND' ? 3.0 : 1.5;
+        this.sim.fx.createExplosion(this.position, this.stats.color, scale);
     }
 }
 
-// --- MAIN SIMULATION CLASS ---
+// --- FX SYSTEM ---
+class FXSystem {
+    constructor(scene) {
+        this.scene = scene;
+        this.particles = [];
+    }
+
+    createExplosion(pos, color, scale) {
+        // 1. Light Flash
+        const light = new THREE.PointLight(color, 10 * scale, 200);
+        light.position.copy(pos);
+        this.scene.add(light);
+        
+        // 2. Debris Particles
+        const geo = new THREE.BufferGeometry();
+        const pCount = 20 * scale;
+        const positions = [];
+        const vels = [];
+        
+        for(let i=0; i<pCount; i++) {
+            positions.push(pos.x, pos.y, pos.z);
+            vels.push((Math.random()-0.5)*5, (Math.random()-0.5)*5, (Math.random()-0.5)*5);
+        }
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        const mat = new THREE.PointsMaterial({ color: color, size: 3*scale, transparent: true });
+        const mesh = new THREE.Points(geo, mat);
+        this.scene.add(mesh);
+        
+        // 3. Shockwave Sphere
+        const shockGeo = new THREE.SphereGeometry(1, 16, 16);
+        const shockMat = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true });
+        const shock = new THREE.Mesh(shockGeo, shockMat);
+        shock.position.copy(pos);
+        this.scene.add(shock);
+
+        this.particles.push({ mesh, light, shock, vels, age: 0 });
+        window.sim.shaker.trigger(0.5 * scale);
+    }
+
+    createSplash(pos) {
+        // Simple ring on water surface
+        const geo = new THREE.RingGeometry(1, 2, 16);
+        const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, transparent: true });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(pos.x, 0.5, pos.z);
+        mesh.rotation.x = -Math.PI/2;
+        this.scene.add(mesh);
+        
+        // Hacky: Reuse particle logic structure but mark as splash
+        this.particles.push({ mesh, isSplash: true, age: 0 });
+    }
+
+    update() {
+        for(let i=this.particles.length-1; i>=0; i--) {
+            const p = this.particles[i];
+            p.age++;
+
+            if(p.isSplash) {
+                p.mesh.scale.multiplyScalar(1.1);
+                p.mesh.material.opacity -= 0.05;
+                if(p.mesh.material.opacity <= 0) {
+                    this.scene.remove(p.mesh);
+                    this.particles.splice(i, 1);
+                }
+                continue;
+            }
+
+            // Explosion Update
+            p.shock.scale.multiplyScalar(1.15);
+            p.shock.material.opacity -= 0.05;
+            p.light.intensity *= 0.8;
+            
+            const pos = p.mesh.geometry.attributes.position.array;
+            for(let j=0; j<pos.length/3; j++) {
+                pos[j*3] += p.vels[j*3];
+                pos[j*3+1] += p.vels[j*3+1];
+                pos[j*3+2] += p.vels[j*3+2];
+            }
+            p.mesh.geometry.attributes.position.needsUpdate = true;
+            p.mesh.material.opacity -= 0.02;
+
+            if(p.mesh.material.opacity <= 0) {
+                this.scene.remove(p.mesh); this.scene.remove(p.light); this.scene.remove(p.shock);
+                this.particles.splice(i, 1);
+            }
+        }
+    }
+}
+
+// --- MAIN SIMULATION ---
 class Simulation {
     constructor() {
         this.container = document.getElementById('canvas-container');
-        this.agents = [];
-        this.scores = { CYAN: 0, MAGENTA: 0, LIME: 0 };
         this.clock = new THREE.Clock();
+        this.agents = [];
+        this.projectiles = [];
+        this.scores = { CYAN: 0, MAGENTA: 0, LIME: 0 };
         this.timeScale = CONFIG.baseSpeed;
         this.targetTimeScale = CONFIG.baseSpeed;
-        this.matrixMode = false;
 
         this.initThree();
-        this.shaker = new CameraShake(this.camera);
-        this.initEnvironment();
+        this.env = new Environment(this.scene);
+        this.fx = new FXSystem(this.scene);
         
-        window.sim = this;
-
-        // Initial Deployment
-        this.spawnSquad('CYAN');
-        this.spawnSquad('MAGENTA');
-
-        // AUTO-SPAWN LOGIC (Reinforcements)
-        setInterval(() => {
-            if(this.agents.length < CONFIG.maxAgents) {
-                const teams = Object.keys(CONFIG.teams);
-                const randomTeam = teams[Math.floor(Math.random() * teams.length)];
-                this.spawnSquad(randomTeam);
-                // console.log(`Reinforcements arriving: ${randomTeam}`);
+        // Camera Shaker
+        this.shaker = { 
+            intensity: 0, 
+            trigger: function(v) { this.intensity += v; },
+            update: function(cam) {
+                if(this.intensity > 0) {
+                    cam.position.add(new THREE.Vector3((Math.random()-0.5)*this.intensity, (Math.random()-0.5)*this.intensity, (Math.random()-0.5)*this.intensity));
+                    this.intensity *= 0.9;
+                }
             }
-        }, 4000); // Check every 4 seconds
+        };
 
+        window.sim = this;
+        this.spawnAirWing();
         this.animate();
     }
 
     initThree() {
         this.scene = new THREE.Scene();
-        this.scene.fog = new THREE.FogExp2(0x050505, 0.002);
+        this.scene.fog = new THREE.FogExp2(0x000511, 0.0015); // Dark Blue Fog
 
-        this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
-        this.camera.position.set(0, 120, 350);
+        this.camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 1, 3000);
+        this.camera.position.set(0, 150, 600);
 
-        this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+        this.renderer = new THREE.WebGLRenderer({ antialias: true });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
-        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         this.container.appendChild(this.renderer.domElement);
 
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
         this.controls.enableDamping = true;
         this.controls.autoRotate = true;
-        this.controls.autoRotateSpeed = 0.3;
+        this.controls.autoRotateSpeed = 0.2;
 
+        // Post Processing
         this.composer = new EffectComposer(this.renderer);
         this.composer.addPass(new RenderPass(this.scene, this.camera));
-        const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
-        bloomPass.strength = 1.5; bloomPass.radius = 0.4; bloomPass.threshold = 0.1;
-        this.composer.addPass(bloomPass);
+        this.composer.addPass(new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85));
 
+        // Lighting
+        this.scene.add(new THREE.AmbientLight(0x404040));
+        const dl = new THREE.DirectionalLight(0xffffff, 2);
+        dl.position.set(200, 500, 200);
+        this.scene.add(dl);
+        
         window.addEventListener('resize', () => {
             this.camera.aspect = window.innerWidth / window.innerHeight;
             this.camera.updateProjectionMatrix();
@@ -337,107 +411,64 @@ class Simulation {
         });
     }
 
-    initEnvironment() {
-        const ambientLight = new THREE.AmbientLight(0x404040);
-        this.scene.add(ambientLight);
-        const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
-        dirLight.position.set(100, 200, 100);
-        this.scene.add(dirLight);
+    spawnAirWing() { this.spawnBatch('CYAN', 5); }
+    spawnNavalFleet() { this.spawnBatch('MAGENTA', 3); }
+    spawnGroundDefense() { this.spawnBatch('LIME', 4); }
 
-        const gridHelper = new THREE.GridHelper(CONFIG.worldSize, 40, 0x222222, 0x111111);
-        this.scene.add(gridHelper);
-
-        const starGeo = new THREE.BufferGeometry();
-        const starPos = [];
-        for(let i=0; i<3000; i++) starPos.push((Math.random()-0.5)*2000, (Math.random()-0.5)*2000, (Math.random()-0.5)*2000);
-        starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
-        const starMat = new THREE.PointsMaterial({color: 0x888888, size: 1.5});
-        this.scene.add(new THREE.Points(starGeo, starMat));
-    }
-
-    // New Formation Spawning Logic (Renamed from addSquad to spawnSquad)
-    spawnSquad(team) {
+    spawnBatch(team, count) {
         if(this.agents.length >= CONFIG.maxAgents) return;
-
-        // Pick a random entry point at the edge of the world
-        const angle = Math.random() * Math.PI * 2;
-        const radius = 500;
-        const startX = Math.cos(angle) * radius;
-        const startZ = Math.sin(angle) * radius;
-        const startY = (Math.random() - 0.5) * 200;
-        
-        // Spawn 3-5 units in a cluster
-        const squadSize = Math.floor(randomRange(3, 6));
-        
-        for(let i=0; i<squadSize; i++) {
-            // Add slight randomness to formation so they don't clip
-            const offset = new THREE.Vector3(randomRange(-20,20), randomRange(-10,10), randomRange(-20,20));
-            const spawnPos = new THREE.Vector3(startX, startY, startZ).add(offset);
-            
-            this.agents.push(new Agent(this.scene, team, this, spawnPos));
+        for(let i=0; i<count; i++) {
+            this.agents.push(new Agent(this.scene, team, this));
         }
         this.updateHUD();
     }
 
-    registerKill(teamKey) {
-        if(this.scores[teamKey] !== undefined) {
-            this.scores[teamKey]++;
-            const el = document.getElementById(`score-${teamKey.toLowerCase()}`);
-            if(el) {
-                el.innerText = this.scores[teamKey];
-                el.parentElement.style.transform = "scale(1.2)";
-                setTimeout(() => el.parentElement.style.transform = "scale(1.0)", 200);
-            }
-        }
+    spawnProjectile(start, target, type, color) {
+        this.projectiles.push(new Projectile(this.scene, start, target, type, color));
     }
 
-    toggleMatrixMode() {
-        this.matrixMode = !this.matrixMode;
-        const btn = document.getElementById('matrix-btn');
-        if(this.matrixMode) {
-            this.targetTimeScale = CONFIG.slowMoSpeed;
-            btn.innerText = "DEACTIVATE MATRIX";
-            btn.classList.add('active');
-            document.getElementById('sys-status').innerText = "SLOW-MOTION";
-        } else {
-            this.targetTimeScale = CONFIG.baseSpeed;
-            btn.innerText = "ACTIVATE MATRIX MODE";
-            btn.classList.remove('active');
-            document.getElementById('sys-status').innerText = "REALISTIC";
-        }
-    }
-
-    reset() {
-        this.agents.forEach(a => {
-            this.scene.remove(a.mesh);
-            this.scene.remove(a.trail);
-        });
-        this.agents = [];
-        this.scores = { CYAN: 0, MAGENTA: 0, LIME: 0 };
-        ['cyan', 'magenta', 'lime'].forEach(t => document.getElementById(`score-${t}`).innerText = '0');
-        this.updateHUD();
+    registerKill(team) {
+        this.scores[team]++;
+        document.getElementById(`score-${team.toLowerCase()}`).innerText = this.scores[team];
     }
 
     updateHUD() {
         document.getElementById('agent-count').innerText = this.agents.length;
     }
 
+    toggleMatrixMode() {
+        this.matrixMode = !this.matrixMode;
+        this.targetTimeScale = this.matrixMode ? CONFIG.slowMoSpeed : CONFIG.baseSpeed;
+        const btn = document.getElementById('matrix-btn');
+        btn.innerText = this.matrixMode ? "DEACTIVATE" : "MATRIX MODE";
+        btn.classList.toggle('active');
+    }
+
+    reset() {
+        location.reload();
+    }
+
     animate() {
         requestAnimationFrame(() => this.animate());
+        
         this.timeScale += (this.targetTimeScale - this.timeScale) * 0.1;
-        const delta = this.clock.getDelta() * this.timeScale;
+        const dt = this.clock.getDelta() * this.timeScale;
+
+        this.shaker.update(this.camera);
         
-        this.shaker.update();
-        
-        // Update & Cleanup
+        // Update Entities
         this.agents = this.agents.filter(a => a.alive);
-        this.agents.forEach(agent => agent.update(delta, this.agents));
+        this.agents.forEach(a => a.update(dt, this.agents));
         
+        this.projectiles = this.projectiles.filter(p => p.active);
+        this.projectiles.forEach(p => p.update(dt));
+
+        this.fx.update();
         this.controls.update();
         this.composer.render();
-        
-        document.getElementById('fps-counter').innerText = Math.round(1 / (delta/this.timeScale) || 60);
-        document.getElementById('g-force').innerText = (this.timeScale * 3.5).toFixed(1); 
+
+        document.getElementById('fps-counter').innerText = Math.round(1/(dt/this.timeScale)) || 60;
+        document.getElementById('depth-meter').innerText = Math.abs(Math.min(0, Math.round(this.camera.position.y)));
     }
 }
 
