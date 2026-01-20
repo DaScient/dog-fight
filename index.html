@@ -3,55 +3,53 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DaScient’s Dog Fight Simulator | Autonomous 3D Aerial Combat</title>
+    <title>DaScient’s Multi-Domain Battle Sim</title>
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-
     <div id="canvas-container"></div>
 
     <div id="hud">
         <div class="hud-top-bar">
             <div class="hud-title">
-                <h1>DOG FIGHT SIM</h1>
-                <div class="status">PHYSICS: <span id="sys-status" class="blink">REALISTIC</span></div>
+                <h1>TOTAL WAR SIMULATION</h1>
+                <div class="status">DOMAINS: <span id="sys-status" class="blink">AIR / LAND / SEA</span></div>
             </div>
             
             <div class="scoreboard">
                 <div class="score-team cyan">
-                    <span class="label">INTERCEPTORS</span>
+                    <span class="label">AIR FORCE</span>
                     <span class="score-val" id="score-cyan">0</span>
                 </div>
                 <div class="score-team magenta">
-                    <span class="label">DREADNOUGHTS</span>
+                    <span class="label">NAVAL FLEET</span>
                     <span class="score-val" id="score-magenta">0</span>
                 </div>
                 <div class="score-team lime">
-                    <span class="label">VIPERS</span>
+                    <span class="label">GROUND DEFENSE</span>
                     <span class="score-val" id="score-lime">0</span>
                 </div>
             </div>
         </div>
 
         <div class="hud-panel left">
-            <h3>TELEMETRY</h3>
-            <div class="data-row"><span>ACTIVE AGENTS:</span> <span id="agent-count">0</span></div>
+            <h3>BATTLESPACE DATA</h3>
+            <div class="data-row"><span>UNITS:</span> <span id="agent-count">0</span></div>
             <div class="data-row"><span>FPS:</span> <span id="fps-counter">60</span></div>
-            <div class="data-row"><span>G-FORCE:</span> <span id="g-force">0.0</span>G</div>
+            <div class="data-row"><span>DEPTH:</span> <span id="depth-meter">0</span>m</div>
         </div>
 
         <div class="hud-panel right">
-            <h3>COMMAND</h3>
-            <button onclick="sim.spawnSquad('CYAN')">DEPLOY INTERCEPTORS</button>
-            <button onclick="sim.spawnSquad('MAGENTA')">DEPLOY DREADNOUGHTS</button>
-            <button onclick="sim.spawnSquad('LIME')">DEPLOY VIPERS</button>
+            <h3>COMMAND DECK</h3>
+            <button onclick="sim.spawnAirWing()">LAUNCH AIRSTRIKE (CYAN)</button>
+            <button onclick="sim.spawnNavalFleet()">DEPLOY SUBMARINES (MAGENTA)</button>
+            <button onclick="sim.spawnGroundDefense()">BUILD TURRETS (LIME)</button>
             
             <div class="toggle-container">
-                <button id="matrix-btn" onclick="sim.toggleMatrixMode()">ACTIVATE MATRIX MODE</button>
+                <button id="matrix-btn" onclick="sim.toggleMatrixMode()">MATRIX MODE</button>
             </div>
-            
-            <button class="danger" onclick="sim.reset()">RESET AIRSPACE</button>
+            <button class="danger" onclick="sim.reset()">NUCLEAR RESET</button>
         </div>
     </div>
 
