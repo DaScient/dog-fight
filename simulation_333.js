@@ -7,7 +7,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 // --- CONFIGURATION ---
 const CONFIG = {
     worldSize: 1000,
-    maxAgents: 333, // Hard cap
+    maxAgents: 333,
     baseSpeed: 1.0, 
     slowMoSpeed: 0.1,
     teams: {
@@ -28,9 +28,6 @@ const CONFIG = {
         }
     }
 };
-
-// --- UTILS ---
-const randomRange = (min, max) => Math.random() * (max - min) + min;
 
 // --- CLASS: AGENT ---
 class Agent {
@@ -131,7 +128,6 @@ class Agent {
     }
 
     fire(dt) {
-        // Fire rate limiter random check
         if(Math.random() < 0.05) { 
            // Laser Visual
            const laserGeo = new THREE.BufferGeometry().setFromPoints([this.position, this.target.position]);
@@ -218,9 +214,13 @@ class Simulation {
         this.matrixMode = false;
 
         this.initThree();
-        this.shaker = { trigger: (val) => { 
-            this.camera.position.add(new THREE.Vector3((Math.random()-0.5)*val, (Math.random()-0.5)*val, (Math.random()-0.5)*val)); 
-        }}; // Simple shaker
+        
+        // Simple camera shaker
+        this.shaker = { 
+            trigger: (val) => { 
+                this.camera.position.add(new THREE.Vector3((Math.random()-0.5)*val, (Math.random()-0.5)*val, (Math.random()-0.5)*val)); 
+            }
+        }; 
         
         window.sim = this;
         
@@ -228,7 +228,7 @@ class Simulation {
         this.spawnFormation('CYAN');
         this.spawnFormation('MAGENTA');
 
-        // Auto-Spawn Loop (Periodic Reinforcements)
+        // Auto-Spawn Loop
         setInterval(() => {
             if(this.agents.length < CONFIG.maxAgents) {
                 const teams = ['CYAN', 'MAGENTA', 'LIME'];
