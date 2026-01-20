@@ -6,11 +6,11 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 
 // --- CONFIGURATION ---
 const CONFIG = {
-    worldSize: 1500,
-    initialCount: 33333, // THE GOAL
-    maxParticles: 1000,
-    baseSpeed: 1.0,
-    slowMoSpeed: 0.05
+    worldSize: 2500,
+    initialCount: 333, // 33,333 THE Original GOAL
+    maxParticles: 10, // 1000
+    baseSpeed: 0.777, // 1.0
+    slowMoSpeed: 0.025
 };
 
 // --- SHIP CLASSES & STATS ---
