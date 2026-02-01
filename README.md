@@ -7,7 +7,7 @@
 A physically-realistic autonomous aerial combat simulation. This project utilizes WebGL (Three.js) to render a high-performance 3D airspace where autonomous agents, governed by state-machine AI, compete in dogfights.
 
 ### Features
-* **Hyper-Surreal Graphics:** UnrealBloomPass post-processing, volumetric fog emulation, and emissive geometry.
+* **Surreal Graphics:** UnrealBloomPass post-processing, volumetric fog emulation, and emissive geometry.
 * **Autonomous Agents:** Agents possess simulated physics (thrust, lift, banking) and decision logic (Target Acquisition, Intercept, Evade).
 * **Interactive HUD:** Glassmorphism UI for real-time telemetry and wing deployment.
 * **Scalability:** Optimized loop handling 50+ agents simultaneously.
