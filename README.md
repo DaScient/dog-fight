@@ -4,7 +4,7 @@
 **Deployment:** [dog-fight.dascient.xyz](https://dog-fight.dascient.xyz)
 
 ### Overview
-A hyper-surreal, physically-realistic autonomous aerial combat simulation. This project utilizes WebGL (Three.js) to render a high-performance 3D airspace where autonomous agents, governed by state-machine AI, compete in dogfights.
+A physically-realistic autonomous aerial combat simulation. This project utilizes WebGL (Three.js) to render a high-performance 3D airspace where autonomous agents, governed by state-machine AI, compete in dogfights.
 
 ### Features
 * **Hyper-Surreal Graphics:** UnrealBloomPass post-processing, volumetric fog emulation, and emissive geometry.
