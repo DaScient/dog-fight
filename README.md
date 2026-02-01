@@ -25,4 +25,4 @@ A physically-realistic autonomous aerial combat simulation. This project utilize
 * **HUD:** Use the on-screen buttons to spawn wings or adjust time dilation.
 
 ---
-*Designed by DaScient. Powered by Gemini.*
+*Designed by DaScient. Powered by Intelligence.*
